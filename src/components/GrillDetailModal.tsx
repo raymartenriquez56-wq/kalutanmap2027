@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   X, 
   MapPin, 
@@ -16,9 +16,10 @@ import {
   Compass, 
   Sparkles,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Store
 } from 'lucide-react';
-import { GrillInfo, SECTORS } from '../data/mapData';
+import { GrillInfo, SECTORS, LANDMARKS_BESIDE_SLOTS } from '../data/mapData';
 
 interface GrillDetailModalProps {
   grill: GrillInfo | null;
@@ -38,6 +39,25 @@ export const GrillDetailModal: React.FC<GrillDetailModalProps> = ({
   if (!grill) return null;
 
   const sector = SECTORS.find(s => s.id === grill.sectorId);
+
+  // Find the exact landmark directly beside this grill slot
+  const besideLandmark = useMemo(() => {
+    if (!grill) return null;
+    const side = grill.row === 'top' ? 'north' : 'south';
+    const candidates = LANDMARKS_BESIDE_SLOTS.filter(lm => lm.side === side || lm.side === 'road');
+    let best = candidates[0];
+    let bestDist = Infinity;
+    const grillCenterX = grill.slotX + grill.slotW / 2;
+    candidates.forEach(lm => {
+      const lmCenterX = lm.x + lm.w / 2;
+      const dist = Math.abs(lmCenterX - grillCenterX);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = lm;
+      }
+    });
+    return best;
+  }, [grill]);
 
   return (
     <div 
@@ -116,11 +136,30 @@ export const GrillDetailModal: React.FC<GrillDetailModalProps> = ({
               Surrounding Checkpoints
             </h4>
 
-            {/* Landmark */}
+            {/* Landmark Directly Beside This Slot */}
+            {besideLandmark && (
+              <div className="flex items-start gap-3 p-3.5 bg-amber-500/10 rounded-xl border border-amber-500/30 shadow-sm">
+                <Store className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                      Landmark Directly Beside This Slot ({grill.row === 'top' ? 'North Curb' : 'South Curb'})
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-amber-300">
+                      {besideLandmark.adjacentGrills}
+                    </span>
+                  </div>
+                  <h5 className="text-sm font-bold text-white mt-0.5">{besideLandmark.name}</h5>
+                  <p className="text-[11px] text-slate-300 mt-1 leading-relaxed">{besideLandmark.description}</p>
+                </div>
+              </div>
+            )}
+
+            {/* General Nearby Area */}
             <div className="flex items-start gap-3 p-3 bg-slate-800/50 rounded-xl border border-slate-700/50">
               <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <span className="text-xs text-slate-400 block">Nearby Landmark</span>
+                <span className="text-xs text-slate-400 block">General Area Checkpoint</span>
                 <span className="text-sm font-semibold text-slate-200">{grill.landmarkNear}</span>
               </div>
             </div>

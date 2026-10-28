@@ -17,25 +17,31 @@ import {
   Compass,
   FileText
 } from 'lucide-react';
-import { POI_LIST, POI, SECTORS, GRILL_BLOCKS } from '../data/mapData';
+import { POI_LIST, POI, SECTORS, GRILL_BLOCKS, LANDMARKS_BESIDE_SLOTS, LandmarkBesideSlot } from '../data/mapData';
 
 interface PoiSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectPoi: (poi: POI) => void;
   onOpenGrillFinder: () => void;
+  onSelectLandmark?: (landmark: LandmarkBesideSlot) => void;
+  landmarks?: LandmarkBesideSlot[];
 }
 
 export const PoiSidebar: React.FC<PoiSidebarProps> = ({
   isOpen,
   onClose,
   onSelectPoi,
-  onOpenGrillFinder
+  onOpenGrillFinder,
+  onSelectLandmark,
+  landmarks
 }) => {
-  const [activeTab, setActiveTab] = useState<'all' | 'stages' | 'police' | 'emergency' | 'landmarks'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'beside' | 'stages' | 'police' | 'emergency' | 'landmarks'>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   if (!isOpen) return null;
+
+  const effectiveLandmarks = landmarks || LANDMARKS_BESIDE_SLOTS;
 
   const filteredPois = POI_LIST.filter(poi => {
     if (searchTerm.trim()) {
@@ -48,6 +54,16 @@ export const PoiSidebar: React.FC<PoiSidebarProps> = ({
     if (activeTab === 'police') return poi.category === 'police';
     if (activeTab === 'emergency') return poi.category === 'medical' || poi.category === 'claiming';
     if (activeTab === 'landmarks') return poi.category === 'government' || poi.category === 'commercial' || poi.category === 'landmark' || poi.category === 'amenity';
+    return true;
+  });
+
+  const filteredBesideSlots = effectiveLandmarks.filter(lm => {
+    if (searchTerm.trim()) {
+      const match = lm.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                    lm.adjacentGrills.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    lm.description.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!match) return false;
+    }
     return true;
   });
 
@@ -114,12 +130,21 @@ export const PoiSidebar: React.FC<PoiSidebarProps> = ({
 
           <div className="flex items-center gap-1 overflow-x-auto pb-1 text-xs">
             <button
-              onClick={() => setActiveTab('all')}
-              className={`px-3 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                activeTab === 'all' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white bg-slate-950'
+              onClick={() => setActiveTab('beside')}
+              className={`px-3 py-1 rounded-lg font-medium whitespace-nowrap transition-colors flex items-center gap-1 ${
+                activeTab === 'beside' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white bg-slate-950'
               }`}
             >
-              All ({POI_LIST.length})
+              <span>Beside Slots</span>
+              <span className="text-[10px] opacity-80">({LANDMARKS_BESIDE_SLOTS.length})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`px-3 py-1 rounded-lg font-medium whitespace-nowrap transition-colors ${
+                activeTab === 'all' ? 'bg-slate-700 text-white font-bold' : 'text-slate-400 hover:text-white bg-slate-950'
+              }`}
+            >
+              Major POIs ({POI_LIST.length})
             </button>
             <button
               onClick={() => setActiveTab('stages')}
@@ -151,14 +176,46 @@ export const PoiSidebar: React.FC<PoiSidebarProps> = ({
                 activeTab === 'landmarks' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white bg-slate-950'
               }`}
             >
-              Landmarks
+              Civic
             </button>
           </div>
         </div>
 
-        {/* POI List */}
+        {/* List Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {filteredPois.map(poi => {
+          {activeTab === 'beside' ? (
+            filteredBesideSlots.map(lm => (
+              <div 
+                key={lm.id}
+                onClick={() => {
+                  if (onSelectLandmark) {
+                    onSelectLandmark(lm);
+                  }
+                  onClose();
+                }}
+                className="p-3 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800/80 hover:border-amber-500/50 cursor-pointer transition-all flex items-start justify-between gap-3 group"
+              >
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                      {lm.side === 'north' ? 'North Curb' : lm.side === 'south' ? 'South Curb' : 'Center'}
+                    </span>
+                    <span className="text-[11px] font-mono text-amber-400 font-semibold">
+                      {lm.adjacentGrills}
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-200 group-hover:text-amber-400 transition-colors">
+                    {lm.name}
+                  </h4>
+                  <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5">
+                    {lm.description}
+                  </p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-amber-400 transition-colors shrink-0 mt-2" />
+              </div>
+            ))
+          ) : (
+            filteredPois.map(poi => {
             let catColor = '#3b82f6';
             if (poi.category === 'stage') catColor = '#ef4444';
             if (poi.category === 'police') catColor = '#3b82f6';
@@ -205,7 +262,8 @@ export const PoiSidebar: React.FC<PoiSidebarProps> = ({
                 <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-amber-400 transition-colors shrink-0 mt-2" />
               </div>
             );
-          })}
+          })
+          )}
         </div>
       </div>
     </div>

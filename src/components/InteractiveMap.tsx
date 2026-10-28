@@ -21,13 +21,19 @@ import {
   Compass, 
   Navigation2, 
   Sparkles,
-  Info
+  Info,
+  Move,
+  Scaling,
+  Sliders,
+  Check
 } from 'lucide-react';
 import { 
   SECTORS, 
   GRILL_BLOCKS, 
   INDIVIDUAL_SLOTS,
   IndividualSlot,
+  LANDMARKS_BESIDE_SLOTS,
+  LandmarkBesideSlot,
   POI_LIST, 
   POI, 
   GrillInfo, 
@@ -40,6 +46,14 @@ interface InteractiveMapProps {
   selectedPoi: POI | null;
   onSelectPoi: (poi: POI | null) => void;
   savedGrillNum: number | null;
+  selectedLandmark?: LandmarkBesideSlot | null;
+  onSelectLandmark?: (landmark: LandmarkBesideSlot | null) => void;
+  landmarks?: LandmarkBesideSlot[];
+  onUpdateLandmark?: (landmark: LandmarkBesideSlot) => void;
+  isShapeEditMode?: boolean;
+  onToggleShapeEditMode?: () => void;
+  activeEditLandmarkId?: string | null;
+  onSelectEditLandmarkId?: (id: string | null) => void;
 }
 
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
@@ -47,9 +61,27 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onSelectGrill,
   selectedPoi,
   onSelectPoi,
-  savedGrillNum
+  savedGrillNum,
+  selectedLandmark,
+  onSelectLandmark,
+  landmarks,
+  onUpdateLandmark,
+  isShapeEditMode = false,
+  onToggleShapeEditMode,
+  activeEditLandmarkId = null,
+  onSelectEditLandmarkId
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Active Drag State for Landmark Reshaping & Moving
+  const [activeDrag, setActiveDrag] = useState<{
+    mode: 'move' | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+    startClientX: number;
+    startClientY: number;
+    initialLm: LandmarkBesideSlot;
+  } | null>(null);
+
+  const effectiveLandmarks = landmarks || LANDMARKS_BESIDE_SLOTS;
 
   // Transform states (pan & zoom)
   const [scale, setScale] = useState<number>(1);
@@ -62,14 +94,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [showBlueprint, setShowBlueprint] = useState<boolean>(true);
   const [blueprintOpacity, setBlueprintOpacity] = useState<number>(0.85);
   const [showSectors, setShowSectors] = useState<boolean>(true);
+  const [showLandmarks, setShowLandmarks] = useState<boolean>(true);
   const [showGrillNumbers, setShowGrillNumbers] = useState<boolean>(true);
-  const [showPois, setShowPois] = useState<boolean>(true);
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>('all');
 
   // Hover state for tooltip
   const [hoveredSlot, setHoveredSlot] = useState<IndividualSlot | null>(null);
-  const [hoveredPoi, setHoveredPoi] = useState<POI | null>(null);
 
   // Native map aspect ratio: 13217 x 2339 (aspect ratio ~ 5.65)
   const MAP_WIDTH = 13217;
@@ -170,13 +201,13 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   // Mouse Drag Handlers
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left click drags
+    if (e.button !== 0 || activeDrag) return; // Only left click drags, ignore if dragging landmark
     setIsDragging(true);
     setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
+    if (!isDragging || activeDrag) return;
     setPosition({
       x: e.clientX - dragStart.x,
       y: e.clientY - dragStart.y
@@ -186,6 +217,64 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const handleMouseUp = () => {
     setIsDragging(false);
   };
+
+  // Window Pointer listeners for landmark resizing & moving
+  useEffect(() => {
+    if (!activeDrag) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const deltaX = (e.clientX - activeDrag.startClientX) / scale;
+      const deltaY = (e.clientY - activeDrag.startClientY) / scale;
+      const init = activeDrag.initialLm;
+      let newX = init.x;
+      let newY = init.y;
+      let newW = init.w;
+      let newH = init.h;
+
+      if (activeDrag.mode === 'move') {
+        newX = Math.round(init.x + deltaX);
+        newY = Math.round(init.y + deltaY);
+      } else {
+        if (activeDrag.mode.includes('e')) {
+          newW = Math.max(25, Math.round(init.w + deltaX));
+        } else if (activeDrag.mode.includes('w')) {
+          const targetW = Math.max(25, Math.round(init.w - deltaX));
+          const targetX = Math.round(init.x + (init.w - targetW));
+          newX = targetX;
+          newW = targetW;
+        }
+
+        if (activeDrag.mode.includes('s')) {
+          newH = Math.max(15, Math.round(init.h + deltaY));
+        } else if (activeDrag.mode.includes('n')) {
+          const targetH = Math.max(15, Math.round(init.h - deltaY));
+          const targetY = Math.round(init.y + (init.h - targetH));
+          newY = targetY;
+          newH = targetH;
+        }
+      }
+
+      onUpdateLandmark?.({
+        ...init,
+        x: Math.max(0, newX),
+        y: Math.max(0, newY),
+        w: newW,
+        h: newH
+      });
+    };
+
+    const handlePointerUp = () => {
+      setActiveDrag(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [activeDrag, scale, onUpdateLandmark]);
 
   // Touch Handlers for Mobile (single finger drag & pinch zoom)
   const touchState = useRef<{ lastDist: number | null; startPos: { x: number; y: number } }>({
@@ -264,16 +353,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     flyTo(midX, 50, 2.2);
   };
 
-  // POI filtered list
-  const filteredPois = POI_LIST.filter(poi => {
-    if (activeCategoryFilter === 'all') return true;
-    if (activeCategoryFilter === 'stage') return poi.category === 'stage';
-    if (activeCategoryFilter === 'police') return poi.category === 'police';
-    if (activeCategoryFilter === 'emergency') return poi.category === 'medical' || poi.category === 'claiming';
-    if (activeCategoryFilter === 'landmark') return poi.category === 'government' || poi.category === 'landmark' || poi.category === 'commercial';
-    return true;
-  });
-
   return (
     <div 
       ref={containerRef}
@@ -329,12 +408,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               <stop offset="0%" stopColor="#10b981" stopOpacity="0.16" />
               <stop offset="100%" stopColor="#10b981" stopOpacity="0.08" />
             </linearGradient>
-
-            {/* Pattern for Pedestrian Crossings */}
-            <pattern id="crosswalk" width="40" height="20" patternUnits="userSpaceOnUse" patternTransform="rotate(90)">
-              <rect width="20" height="20" fill="rgba(255, 255, 255, 0.4)" />
-              <rect x="20" width="20" height="20" fill="transparent" />
-            </pattern>
 
             {/* Glow Filter for Highlights */}
             <filter id="radar-glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -423,17 +496,349 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             </g>
           )}
 
-          {/* PEDESTRIAN CROSSING ROAD STRIPES */}
-          <g id="crossings-layer">
-            {/* Crossing 1 */}
-            <rect x={MAP_WIDTH * 0.341} y={MAP_HEIGHT * 0.44} width="110" height={MAP_HEIGHT * 0.12} fill="url(#crosswalk)" opacity="0.65" />
-            {/* Crossing 2 */}
-            <rect x={MAP_WIDTH * 0.536} y={MAP_HEIGHT * 0.44} width="110" height={MAP_HEIGHT * 0.12} fill="url(#crosswalk)" opacity="0.65" />
-            {/* Crossing 3 */}
-            <rect x={MAP_WIDTH * 0.662} y={MAP_HEIGHT * 0.44} width="110" height={MAP_HEIGHT * 0.12} fill="url(#crosswalk)" opacity="0.65" />
-            {/* Crossing 4 */}
-            <rect x={MAP_WIDTH * 0.776} y={MAP_HEIGHT * 0.44} width="110" height={MAP_HEIGHT * 0.12} fill="url(#crosswalk)" opacity="0.65" />
-          </g>
+          {/* LANDMARKS BESIDE SLOTS (OFFICIAL ESTABLISHMENTS, LOTS & CIVIC BUILDINGS) */}
+          {showLandmarks && (
+            <g id="landmarks-beside-slots-layer">
+              {effectiveLandmarks.map(lm => {
+                const isSelected = selectedLandmark?.id === lm.id;
+                const isEditing = isShapeEditMode && (activeEditLandmarkId === lm.id || selectedLandmark?.id === lm.id);
+
+                let strokeColor = 'rgba(148, 163, 184, 0.45)';
+                let fillColor = 'rgba(30, 41, 59, 0.40)';
+                let textColor = '#e2e8f0';
+
+                if (lm.category === 'government') {
+                  strokeColor = 'rgba(16, 185, 129, 0.7)';
+                  fillColor = isSelected ? 'rgba(16, 185, 129, 0.38)' : 'rgba(16, 185, 129, 0.16)';
+                  textColor = '#6ee7b7';
+                } else if (lm.category === 'police') {
+                  strokeColor = 'rgba(59, 130, 246, 0.8)';
+                  fillColor = isSelected ? 'rgba(59, 130, 246, 0.45)' : 'rgba(59, 130, 246, 0.22)';
+                  textColor = '#93c5fd';
+                } else if (lm.category === 'medical') {
+                  strokeColor = 'rgba(239, 68, 68, 0.8)';
+                  fillColor = isSelected ? 'rgba(239, 68, 68, 0.45)' : 'rgba(239, 68, 68, 0.22)';
+                  textColor = '#fca5a5';
+                } else if (lm.category === 'claiming') {
+                  strokeColor = 'rgba(245, 158, 11, 0.8)';
+                  fillColor = isSelected ? 'rgba(245, 158, 11, 0.45)' : 'rgba(245, 158, 11, 0.22)';
+                  textColor = '#fde68a';
+                } else if (lm.category === 'market') {
+                  strokeColor = 'rgba(234, 88, 12, 0.85)';
+                  fillColor = isSelected ? 'rgba(234, 88, 12, 0.38)' : 'rgba(234, 88, 12, 0.18)';
+                  textColor = '#fdba74';
+                } else if (lm.category === 'stage') {
+                  strokeColor = 'rgba(220, 38, 38, 0.9)';
+                  fillColor = isSelected ? 'rgba(220, 38, 38, 0.5)' : 'rgba(220, 38, 38, 0.28)';
+                  textColor = '#fecaca';
+                } else if (lm.category === 'park') {
+                  strokeColor = 'rgba(5, 150, 105, 0.7)';
+                  fillColor = isSelected ? 'rgba(5, 150, 105, 0.35)' : 'rgba(5, 150, 105, 0.18)';
+                  textColor = '#a7f3d0';
+                } else if (lm.category === 'commercial') {
+                  strokeColor = 'rgba(99, 102, 241, 0.65)';
+                  fillColor = isSelected ? 'rgba(99, 102, 241, 0.35)' : 'rgba(99, 102, 241, 0.14)';
+                  textColor = '#c7d2fe';
+                }
+
+                if (isSelected || isEditing) {
+                  strokeColor = isEditing ? '#38bdf8' : '#ffffff';
+                }
+
+                // Filter responsiveness if a quick category filter is active
+                let matchesCategory = true;
+                if (activeCategoryFilter === 'stage') {
+                  matchesCategory = lm.category === 'stage';
+                } else if (activeCategoryFilter === 'police') {
+                  matchesCategory = lm.category === 'police';
+                } else if (activeCategoryFilter === 'emergency') {
+                  matchesCategory = lm.category === 'medical' || lm.category === 'claiming';
+                } else if (activeCategoryFilter === 'landmark') {
+                  matchesCategory = lm.category === 'government' || lm.category === 'park' || lm.category === 'commercial';
+                }
+
+                const opacity = matchesCategory ? 1 : 0.22;
+                const centerX = lm.x + lm.w / 2;
+                const centerY = lm.y + lm.h / 2;
+
+                return (
+                  <g 
+                    key={lm.id}
+                    className="cursor-pointer transition-opacity duration-200"
+                    opacity={opacity}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onSelectEditLandmarkId) {
+                        onSelectEditLandmarkId(lm.id);
+                      }
+                      if (onSelectLandmark) {
+                        onSelectLandmark(lm);
+                      }
+                      if (!isShapeEditMode) {
+                        flyTo((centerX / MAP_WIDTH) * 100, (centerY / MAP_HEIGHT) * 100, 3.0);
+                      }
+                    }}
+                  >
+                    {/* Footprint Box */}
+                    <rect 
+                      x={lm.x} 
+                      y={lm.y} 
+                      width={lm.w} 
+                      height={lm.h} 
+                      rx="6"
+                      fill={fillColor}
+                      stroke={strokeColor}
+                      strokeWidth={isEditing ? 3.5 : isSelected ? 3.5 : 1.2}
+                      onPointerDown={(e) => {
+                        if (isShapeEditMode && isEditing) {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setActiveDrag({
+                            mode: 'move',
+                            startClientX: e.clientX,
+                            startClientY: e.clientY,
+                            initialLm: { ...lm }
+                          });
+                        }
+                      }}
+                      className={isEditing ? 'cursor-move' : undefined}
+                    />
+
+                    {/* Landmark Name Label */}
+                    <text 
+                      x={centerX} 
+                      y={lm.h > 180 ? lm.y + 45 : centerY} 
+                      textAnchor="middle" 
+                      dominantBaseline="central"
+                      fill={textColor} 
+                      fontSize={lm.w > 400 ? '22' : lm.w > 180 ? '16' : '13'} 
+                      fontWeight="800"
+                      letterSpacing="0.5"
+                      pointerEvents="none"
+                      className="select-none drop-shadow"
+                    >
+                      {lm.name}
+                    </text>
+
+                    {/* Adjacent Grills Indicator underneath name (if height allows) */}
+                    {lm.h > 180 && (
+                      <text 
+                        x={centerX} 
+                        y={lm.y + 75} 
+                        textAnchor="middle" 
+                        fill="#cbd5e1" 
+                        fontSize="12.5" 
+                        fontWeight="600"
+                        fontFamily="JetBrains Mono, monospace"
+                        pointerEvents="none"
+                        opacity="0.9"
+                      >
+                        {lm.adjacentGrills}
+                      </text>
+                    )}
+
+                    {/* SHAPE RESHAPING & MOVING HANDLES (WHEN EDIT MODE IS ACTIVE) */}
+                    {isEditing && (
+                      <g id={`edit-gizmo-${lm.id}`}>
+                        {/* Cyan Bounding dashed outline */}
+                        <rect 
+                          x={lm.x} 
+                          y={lm.y} 
+                          width={lm.w} 
+                          height={lm.h} 
+                          rx="6"
+                          fill="rgba(56, 189, 248, 0.14)"
+                          stroke="#38bdf8" 
+                          strokeWidth="3.5" 
+                          strokeDasharray="10, 6"
+                          pointerEvents="none"
+                        />
+
+                        {/* Top floating dimension pill */}
+                        <g transform={`translate(${centerX}, ${lm.y - 36})`} pointerEvents="none">
+                          <rect 
+                            x="-150" 
+                            y="-18" 
+                            width="300" 
+                            height="36" 
+                            rx="6" 
+                            fill="#0f172a" 
+                            stroke="#38bdf8" 
+                            strokeWidth="2" 
+                          />
+                          <text 
+                            x="0" 
+                            y="5" 
+                            textAnchor="middle" 
+                            fill="#38bdf8" 
+                            fontSize="14" 
+                            fontWeight="800" 
+                            fontFamily="JetBrains Mono, monospace"
+                          >
+                            W: {lm.w} × H: {lm.h} | X: {lm.x}, Y: {lm.y}
+                          </text>
+                        </g>
+
+                        {/* Corner Resize Handles */}
+                        {/* NW */}
+                        <rect 
+                          x={lm.x - 14} 
+                          y={lm.y - 14} 
+                          width="28" 
+                          height="28" 
+                          rx="5" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2.5" 
+                          className="cursor-nwse-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'nw', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+                        {/* NE */}
+                        <rect 
+                          x={lm.x + lm.w - 14} 
+                          y={lm.y - 14} 
+                          width="28" 
+                          height="28" 
+                          rx="5" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2.5" 
+                          className="cursor-nesw-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'ne', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+                        {/* SE */}
+                        <rect 
+                          x={lm.x + lm.w - 14} 
+                          y={lm.y + lm.h - 14} 
+                          width="28" 
+                          height="28" 
+                          rx="5" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2.5" 
+                          className="cursor-nwse-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'se', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+                        {/* SW */}
+                        <rect 
+                          x={lm.x - 14} 
+                          y={lm.y + lm.h - 14} 
+                          width="28" 
+                          height="28" 
+                          rx="5" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2.5" 
+                          className="cursor-nesw-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'sw', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+
+                        {/* Edge Resize Handles */}
+                        {/* N */}
+                        <rect 
+                          x={centerX - 12} 
+                          y={lm.y - 12} 
+                          width="24" 
+                          height="24" 
+                          rx="4" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2" 
+                          className="cursor-ns-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'n', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+                        {/* S */}
+                        <rect 
+                          x={centerX - 12} 
+                          y={lm.y + lm.h - 12} 
+                          width="24" 
+                          height="24" 
+                          rx="4" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2" 
+                          className="cursor-ns-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 's', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+                        {/* W */}
+                        <rect 
+                          x={lm.x - 12} 
+                          y={centerY - 12} 
+                          width="24" 
+                          height="24" 
+                          rx="4" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2" 
+                          className="cursor-ew-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'w', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+                        {/* E */}
+                        <rect 
+                          x={lm.x + lm.w - 12} 
+                          y={centerY - 12} 
+                          width="24" 
+                          height="24" 
+                          rx="4" 
+                          fill="#0284c7" 
+                          stroke="#ffffff" 
+                          strokeWidth="2" 
+                          className="cursor-ew-resize"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'e', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        />
+
+                        {/* Central Drag & Move Pill Handle */}
+                        <g 
+                          transform={`translate(${centerX}, ${centerY})`}
+                          className="cursor-move"
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setActiveDrag({ mode: 'move', startClientX: e.clientX, startClientY: e.clientY, initialLm: { ...lm } });
+                          }}
+                        >
+                          <circle r="22" fill="#0284c7" stroke="#ffffff" strokeWidth="2.5" />
+                          <circle r="8" fill="#ffffff" />
+                        </g>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          )}
 
           {/* INDIVIDUAL GRILL SLOTS (ALL 414 PHYSICAL TABLES) */}
           <g id="individual-grill-slots-layer">
@@ -608,115 +1013,35 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             </g>
           )}
 
-          {/* POI PINS & MARKERS */}
-          {showPois && (
-            <g id="poi-layer">
-              {filteredPois.map(poi => {
-                const px = (poi.xPercent / 100) * MAP_WIDTH;
-                const py = (poi.yPercent / 100) * MAP_HEIGHT;
-                const isSelected = selectedPoi?.id === poi.id;
-                const isHovered = hoveredPoi?.id === poi.id;
-
-                // Color by Category
-                let badgeBg = '#1e293b';
-                let strokeColor = '#94a3b8';
-                let iconSymbol = '📍';
-
-                if (poi.category === 'stage') {
-                  badgeBg = '#dc2626';
-                  strokeColor = '#f87171';
-                  iconSymbol = '🔥';
-                } else if (poi.category === 'police') {
-                  badgeBg = '#1d4ed8';
-                  strokeColor = '#60a5fa';
-                  iconSymbol = '🛡️';
-                } else if (poi.category === 'medical') {
-                  badgeBg = '#b91c1c';
-                  strokeColor = '#fca5a5';
-                  iconSymbol = '🚑';
-                } else if (poi.category === 'claiming') {
-                  badgeBg = '#b45309';
-                  strokeColor = '#fcd34d';
-                  iconSymbol = '📦';
-                } else if (poi.category === 'government') {
-                  badgeBg = '#047857';
-                  strokeColor = '#6ee7b7';
-                  iconSymbol = '🏛️';
-                } else if (poi.category === 'commercial') {
-                  badgeBg = '#475569';
-                  strokeColor = '#cbd5e1';
-                  iconSymbol = '🏬';
-                } else if (poi.category === 'crossing') {
-                  badgeBg = '#334155';
-                  strokeColor = '#94a3b8';
-                  iconSymbol = '🚶';
-                }
-
-                return (
-                  <g 
-                    key={poi.id}
-                    transform={`translate(${px}, ${py})`}
-                    className="cursor-pointer transition-transform"
-                    onMouseEnter={() => setHoveredPoi(poi)}
-                    onMouseLeave={() => setHoveredPoi(null)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectPoi(poi);
-                    }}
-                  >
-                    {/* Pulsing ring if selected */}
-                    {isSelected && (
-                      <circle r="70" fill="none" stroke={strokeColor} strokeWidth="5" className="animate-ping" opacity="0.4" />
-                    )}
-
-                    {/* Pin Head */}
-                    <circle 
-                      r={isSelected ? '38' : isHovered ? '32' : '26'} 
-                      fill={badgeBg} 
-                      stroke={isSelected ? '#ffffff' : strokeColor} 
-                      strokeWidth={isSelected ? '5' : '3.5'} 
-                      className="shadow-xl"
-                    />
-
-                    {/* Emoji Icon inside circle */}
-                    <text 
-                      x="0" 
-                      y={isSelected ? '10' : '8'} 
-                      textAnchor="middle" 
-                      fontSize={isSelected ? '28' : '20'}
-                      pointerEvents="none"
-                    >
-                      {iconSymbol}
-                    </text>
-
-                    {/* Label Tag on Hover or Select or Important POIs */}
-                    {(isSelected || isHovered || poi.category === 'stage' || poi.category === 'government') && (
-                      <g transform="translate(0, -48)" pointerEvents="none">
-                        <rect 
-                          x={-Math.max(poi.name.length * 8.5, 90)} 
-                          y="-38" 
-                          width={Math.max(poi.name.length * 17, 180)} 
-                          height="44" 
-                          rx="6" 
-                          fill="rgba(15, 23, 42, 0.95)" 
-                          stroke={strokeColor} 
-                          strokeWidth="2" 
-                        />
-                        <text 
-                          x="0" 
-                          y="-10" 
-                          textAnchor="middle" 
-                          fill="#ffffff" 
-                          fontSize="21" 
-                          fontWeight="700"
-                        >
-                          {poi.name}
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
+          {/* ACTIVE SELECTED POI HIGHLIGHT (CLEAN RECTANGULAR CALLOUT, ZERO CIRCULAR ICONS) */}
+          {selectedPoi && (
+            <g 
+              id="selected-poi-marker"
+              transform={`translate(${(selectedPoi.xPercent / 100) * MAP_WIDTH}, ${(selectedPoi.yPercent / 100) * MAP_HEIGHT})`}
+              pointerEvents="none"
+              filter="url(#radar-glow)"
+            >
+              <rect 
+                x={-Math.max(selectedPoi.name.length * 9, 110)} 
+                y="-32" 
+                width={Math.max(selectedPoi.name.length * 18, 220)} 
+                height="56" 
+                rx="8" 
+                fill="#0f172a" 
+                stroke="#38bdf8" 
+                strokeWidth="3.5" 
+              />
+              <text 
+                x="0" 
+                y="4" 
+                textAnchor="middle" 
+                fill="#ffffff" 
+                fontSize="22" 
+                fontWeight="800"
+                fontFamily="JetBrains Mono, monospace"
+              >
+                ★ {selectedPoi.name}
+              </text>
             </g>
           )}
         </svg>
@@ -779,8 +1104,41 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       </div>
 
+      {/* ACTIVE SHAPE EDIT MODE BANNER */}
+      {isShapeEditMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2.5 px-4 py-2 bg-slate-900/95 border border-sky-500/80 shadow-2xl rounded-full text-xs text-sky-200 backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
+          <span className="font-bold text-white">Landmark Reshaping Mode</span>
+          <span className="text-slate-400 hidden md:inline">· Drag shape to move, or drag blue handles to resize</span>
+          {onToggleShapeEditMode && (
+            <button 
+              onClick={onToggleShapeEditMode}
+              className="ml-2 px-2.5 py-0.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold rounded-full text-[11px] transition-colors"
+            >
+              Done
+            </button>
+          )}
+        </div>
+      )}
+
       {/* TOP RIGHT CONTROLS: ZOOM, FULLSCREEN, LAYERS */}
       <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+        {/* Landmark Shape Adjustment Toggle */}
+        {onToggleShapeEditMode && (
+          <button
+            onClick={onToggleShapeEditMode}
+            className={`flex items-center gap-1.5 px-3 py-2 backdrop-blur-md rounded-lg border text-xs font-semibold shadow-lg transition-all ${
+              isShapeEditMode 
+                ? 'bg-sky-500 text-slate-950 border-sky-400 ring-2 ring-sky-400/40' 
+                : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-700/80 hover:text-white'
+            }`}
+            title="Adjust Landmark Shapes & Coordinates"
+          >
+            <Move className="w-4 h-4" />
+            <span className="hidden sm:inline">{isShapeEditMode ? 'Adjusting Shapes' : 'Adjust Shapes'}</span>
+          </button>
+        )}
+
         {/* Layer Controls Dropdown */}
         <div className="relative">
           <button
@@ -838,6 +1196,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 />
               </label>
 
+              {/* Landmarks Beside Slots Toggle */}
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="text-slate-300">Landmarks Beside Slots</span>
+                <input 
+                  type="checkbox" 
+                  checked={showLandmarks} 
+                  onChange={(e) => setShowLandmarks(e.target.checked)} 
+                  className="rounded border-slate-700 text-amber-500 focus:ring-0 bg-slate-800"
+                />
+              </label>
+
               {/* Grill Numbers Toggle */}
               <label className="flex items-center justify-between cursor-pointer">
                 <span className="text-slate-300">Grill Table Numbers</span>
@@ -845,17 +1214,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   type="checkbox" 
                   checked={showGrillNumbers} 
                   onChange={(e) => setShowGrillNumbers(e.target.checked)} 
-                  className="rounded border-slate-700 text-amber-500 focus:ring-0 bg-slate-800"
-                />
-              </label>
-
-              {/* POI Pins Toggle */}
-              <label className="flex items-center justify-between cursor-pointer">
-                <span className="text-slate-300">Points of Interest</span>
-                <input 
-                  type="checkbox" 
-                  checked={showPois} 
-                  onChange={(e) => setShowPois(e.target.checked)} 
                   className="rounded border-slate-700 text-amber-500 focus:ring-0 bg-slate-800"
                 />
               </label>

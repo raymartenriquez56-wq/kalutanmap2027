@@ -15,7 +15,9 @@ import {
   Sparkles,
   Layers,
   ChevronRight,
-  Printer
+  Printer,
+  Move,
+  Sliders
 } from 'lucide-react';
 import { InteractiveMap } from './components/InteractiveMap';
 import { GrillDetailModal } from './components/GrillDetailModal';
@@ -25,12 +27,56 @@ import { PoiSidebar } from './components/PoiSidebar';
 import { LayoutPdfModal } from './components/LayoutPdfModal';
 import { MyGrillDrawer } from './components/MyGrillDrawer';
 import { FestivalGuideModal } from './components/FestivalGuideModal';
-import { ALL_GRILLS, GrillInfo, POI } from './data/mapData';
+import { LandmarkDetailModal } from './components/LandmarkDetailModal';
+import { LandmarkShapeEditorDrawer } from './components/LandmarkShapeEditorDrawer';
+import { ALL_GRILLS, GrillInfo, POI, LandmarkBesideSlot, LANDMARKS_BESIDE_SLOTS } from './data/mapData';
 
 export default function App() {
   // Selected Map Entities
   const [selectedGrill, setSelectedGrill] = useState<GrillInfo | null>(null);
   const [selectedPoi, setSelectedPoi] = useState<POI | null>(null);
+  const [selectedLandmark, setSelectedLandmark] = useState<LandmarkBesideSlot | null>(null);
+
+  // Customizable / Adjustable Landmark Shapes
+  const [landmarks, setLandmarks] = useState<LandmarkBesideSlot[]>(() => {
+    try {
+      const saved = localStorage.getItem('mapandan_landmarks_custom');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return LANDMARKS_BESIDE_SLOTS;
+  });
+
+  const [isShapeEditOpen, setIsShapeEditOpen] = useState<boolean>(false);
+  const [activeEditLandmarkId, setActiveEditLandmarkId] = useState<string | null>(null);
+
+  const handleUpdateLandmark = (updated: LandmarkBesideSlot) => {
+    setLandmarks(prev => {
+      const next = prev.map(lm => lm.id === updated.id ? updated : lm);
+      localStorage.setItem('mapandan_landmarks_custom', JSON.stringify(next));
+      return next;
+    });
+    if (selectedLandmark?.id === updated.id) {
+      setSelectedLandmark(updated);
+    }
+  };
+
+  const handleResetLandmark = (id: string) => {
+    const orig = LANDMARKS_BESIDE_SLOTS.find(lm => lm.id === id);
+    if (orig) {
+      handleUpdateLandmark(orig);
+    }
+  };
+
+  const handleResetAllLandmarks = () => {
+    setLandmarks(LANDMARKS_BESIDE_SLOTS);
+    localStorage.removeItem('mapandan_landmarks_custom');
+    if (selectedLandmark) {
+      const orig = LANDMARKS_BESIDE_SLOTS.find(lm => lm.id === selectedLandmark.id);
+      if (orig) setSelectedLandmark(orig);
+    }
+  };
 
   // Saved Grill in LocalStorage
   const [savedGrillNum, setSavedGrillNum] = useState<number | null>(() => {
@@ -123,6 +169,16 @@ export default function App() {
           >
             CAD Blueprint
           </button>
+          <button 
+            onClick={() => setIsShapeEditOpen(prev => !prev)} 
+            className={`transition-colors whitespace-nowrap shrink-0 text-left flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${
+              isShapeEditOpen ? 'bg-sky-500/20 text-sky-400 font-bold border border-sky-500/40' : 'hover:text-amber-400'
+            }`}
+            title="Adjust, move, or reshape landmark shapes directly on the map"
+          >
+            <Move className="w-3.5 h-3.5" />
+            <span>Adjust Shapes</span>
+          </button>
         </nav>
 
         {/* Zone 3: 1 primary action */}
@@ -206,6 +262,21 @@ export default function App() {
           selectedPoi={selectedPoi}
           onSelectPoi={(poi) => setSelectedPoi(poi)}
           savedGrillNum={savedGrillNum}
+          selectedLandmark={selectedLandmark}
+          onSelectLandmark={(landmark) => {
+            setSelectedLandmark(landmark);
+            if (landmark) setActiveEditLandmarkId(landmark.id);
+          }}
+          landmarks={landmarks}
+          onUpdateLandmark={handleUpdateLandmark}
+          isShapeEditMode={isShapeEditOpen}
+          onToggleShapeEditMode={() => setIsShapeEditOpen(prev => !prev)}
+          activeEditLandmarkId={activeEditLandmarkId}
+          onSelectEditLandmarkId={(id) => {
+            setActiveEditLandmarkId(id);
+            const lm = landmarks.find(l => l.id === id);
+            if (lm) setSelectedLandmark(lm);
+          }}
         />
       </main>
 
@@ -250,6 +321,12 @@ export default function App() {
           setSelectedGrill(null);
         }}
         onOpenGrillFinder={() => setIsFinderOpen(true)}
+        onSelectLandmark={(lm) => {
+          setSelectedLandmark(lm);
+          setActiveEditLandmarkId(lm.id);
+          setSelectedGrill(null);
+        }}
+        landmarks={landmarks}
       />
 
       {/* 5. Original CAD PDF Layout Modal */}
@@ -279,6 +356,43 @@ export default function App() {
       <FestivalGuideModal 
         isOpen={isGuideOpen}
         onClose={() => setIsGuideOpen(false)}
+      />
+
+      {/* 8. Landmark Beside Slots Detail Modal */}
+      <LandmarkDetailModal 
+        landmark={selectedLandmark}
+        onClose={() => setSelectedLandmark(null)}
+        onSelectAdjacentGrills={(lm) => {
+          // Extract first number in adjacentGrills string (e.g. "Grills 392 – 404")
+          const match = lm.adjacentGrills.match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            const grill = ALL_GRILLS.get(num);
+            if (grill) {
+              setSelectedGrill(grill);
+            }
+          }
+        }}
+      />
+
+      {/* 9. Landmark Shape & Position Interactive Editor Drawer */}
+      <LandmarkShapeEditorDrawer 
+        isOpen={isShapeEditOpen}
+        onClose={() => setIsShapeEditOpen(false)}
+        landmarks={landmarks}
+        selectedLandmarkId={activeEditLandmarkId || selectedLandmark?.id || null}
+        onSelectLandmarkId={(id) => {
+          setActiveEditLandmarkId(id);
+          const lm = landmarks.find(l => l.id === id);
+          if (lm) setSelectedLandmark(lm);
+        }}
+        onUpdateLandmark={handleUpdateLandmark}
+        onResetLandmark={handleResetLandmark}
+        onResetAll={handleResetAllLandmarks}
+        onFocusLandmark={(lm) => {
+          setSelectedLandmark(lm);
+          setActiveEditLandmarkId(lm.id);
+        }}
       />
     </div>
   );

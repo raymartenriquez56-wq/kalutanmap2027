@@ -188,9 +188,10 @@ export const GRILL_BLOCKS: GrillBlock[] = [
 ];
 
 import { INDIVIDUAL_SLOTS, IndividualSlot } from './individualSlots';
+import { LANDMARKS_BESIDE_SLOTS, LandmarkBesideSlot } from './landmarksBesideSlots';
 
-export { INDIVIDUAL_SLOTS };
-export type { IndividualSlot };
+export { INDIVIDUAL_SLOTS, LANDMARKS_BESIDE_SLOTS };
+export type { IndividualSlot, LandmarkBesideSlot };
 
 // Helper to generate full lookup table of individual grills 1 through 414
 export function generateGrillDatabase(): Map<number, GrillInfo> {
@@ -475,42 +476,6 @@ export const POI_LIST: POI[] = [
     sectorId: 3,
     description: 'Official festival parking access for 4-wheel and 2-wheel vehicles.',
     details: 'Follow traffic marshals. Parking fee: Standard municipal rate.'
-  },
-  {
-    id: 'crossing-1',
-    name: 'Town Center Crossing',
-    category: 'crossing',
-    xPercent: 34.5,
-    yPercent: 50.0,
-    sectorId: 3,
-    description: 'Designated pedestrian crossing with crossing guards.',
-  },
-  {
-    id: 'crossing-2',
-    name: 'Market West Crossing',
-    category: 'crossing',
-    xPercent: 54.0,
-    yPercent: 50.0,
-    sectorId: 2,
-    description: 'Active pedestrian artery linking north and south market sides.',
-  },
-  {
-    id: 'crossing-3',
-    name: '7-Eleven Crossing',
-    category: 'crossing',
-    xPercent: 66.5,
-    yPercent: 50.0,
-    sectorId: 2,
-    description: 'Crosswalk directly by Producers Bank and 7-Eleven.',
-  },
-  {
-    id: 'crossing-4',
-    name: 'Municipal Hall Crossing',
-    category: 'crossing',
-    xPercent: 78.0,
-    yPercent: 50.0,
-    sectorId: 1,
-    description: 'Main civic crosswalk connecting Municipal Hall to People\'s Park.',
   },
 
   // --- COMMERCIAL ANCHORS ---
