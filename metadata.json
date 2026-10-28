@@ -1,0 +1,6 @@
+{
+  "name": "Kalutan ed Dalan 2027 Interactive Map",
+  "description": "Interactive street map, grill locator, and festival guide for Kalutan ed Dalan 2027 in Mapandan, Pangasinan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
